@@ -1,25 +1,40 @@
 # Production Dockerfile for training-app
-# Node.js 20 Alpine as requested
-FROM node:20-alpine AS base
+#
+# This image is intended for running the application in production.
+# It copies the full application directory (filtered by .dockerignore),
+# so any runtime-relevant files must be present in the repository and
+# not excluded there. Note that README.md and jest.config.cjs are
+# intentionally excluded as they are not used at runtime.
+
+# Build stage: install dependencies
+FROM node:20-alpine AS build
 
 WORKDIR /usr/src/app
 
-# Install only production dependencies
+# Install dependencies based on lockfile for reproducible builds
 COPY package.json package-lock.json ./
 RUN npm ci --only=production
 
-# Copy application source (tests and docs are excluded via .dockerignore)
+# Copy the rest of the application source
 COPY . .
 
-# Create non-root user
-RUN addgroup -S nodeapp && adduser -S nodeapp -G nodeapp \
-  && chown -R nodeapp:nodeapp /usr/src/app
+# Runtime stage: minimal image with production deps only
+FROM node:20-alpine AS runtime
 
-USER nodeapp
+# Create and use a non-root user for least-privilege execution
+RUN addgroup -S nodeapp && adduser -S nodeapp -G nodeapp
 
-ENV NODE_ENV=production
-ENV PORT=3000
+WORKDIR /usr/src/app
+
+# Copy installed production dependencies and application code
+COPY --from=build /usr/src/app/node_modules ./node_modules
+COPY --from=build /usr/src/app .
+
+ENV NODE_ENV=production \
+    PORT=3000
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+USER nodeapp
+
+CMD ["node", "src/server.js"]

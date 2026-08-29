@@ -104,7 +104,8 @@ From the project root:
 docker compose up -d --build
 ```
 
-The API will be available on:
+The application will run as a service named `training-app` and will be
+available on:
 
 - http://localhost:3000
 
@@ -114,7 +115,7 @@ To view logs:
 docker compose logs -f training-app
 ```
 
-To stop the container:
+To stop the container and remove resources:
 
 ```bash
 docker compose down
