@@ -1,6 +1,6 @@
 # training-app
 
-Workout tracking API MVP
+Workout tracking API MVP with a simple frontend.
 
 ## Local development
 
@@ -10,11 +10,15 @@ Install dependencies:
 npm install
 ```
 
-Run the application locally:
+Run the backend API locally (default port 8080):
 
 ```bash
 npm start
 ```
+
+The API will be available at:
+
+- http://localhost:8080
 
 Run the test suite:
 
@@ -80,59 +84,99 @@ On validation error:
 }
 ```
 
+## Frontend overview
+
+A minimal responsive frontend is provided under `public/` and is served as a
+separate service in Docker Compose. It allows you to:
+
+- View the list of workouts.
+- View details for a selected workout (exercises and sets).
+- Create a new workout.
+- Add exercises and sets (reps and weight) before submitting.
+
+The frontend talks to the backend API via a simple `/api` proxy configured in
+`docker-compose.yml`.
+
 ## Configuration
 
 The API currently does not require any mandatory environment variables.
 The following variables are recognized and can be overridden for production:
 
-- `PORT` (default: `3000`) – HTTP port the server listens on.
-- `NODE_ENV` (default: `development` locally, `production` in the container) – Node environment flag.
+- `PORT` (default: `8080`) – HTTP port the backend server listens on.
+- `NODE_ENV` (default: `development` locally, `production` in the container) –
+  Node environment flag.
 
-If you introduce new configuration in the future (e.g., database URLs, API keys),
-ensure they are documented here and validated at startup.
+The frontend server also recognizes:
+
+- `PORT` (default: `3000` inside the container) – HTTP port the frontend
+  server listens on.
+- `BACKEND_URL` (default: `http://localhost:8080`) – URL of the backend API
+  used by the proxy for `/api/*` requests.
+
+If you introduce new configuration in the future (e.g., database URLs, API
+keys), ensure they are documented here and validated at startup.
 
 ## Containerized deployment
 
 This project includes a production-ready Docker setup using Node.js 20 Alpine.
+The backend and frontend run as separate services.
 
 ### Build and run with Docker Compose
 
 From the project root:
 
 ```bash
-# Build the image and start the service in the background
+# Build the images and start the services in the background
 docker compose up -d --build
 ```
 
-The application will run as a service named `training-app` and will be
-available on:
+Services:
 
-- http://localhost:3000
+- `backend` – Express API, internal to the Docker network, listening on port
+  `8080` inside the container.
+- `frontend` – Static file + proxy server, listening on port `3000` inside the
+  container and exposed on host port `3100`.
+
+Once started, access the application via the frontend:
+
+- Frontend: http://localhost:3100
+
+The backend is not published on a host port by default; it is only reachable
+from other services in the Docker network. The frontend proxies API requests
+from `/api/*` to the backend.
 
 To view logs:
 
 ```bash
-docker compose logs -f training-app
+# Backend logs
+docker compose logs -f backend
+
+# Frontend logs
+docker compose logs -f frontend
 ```
 
-To stop the container and remove resources:
+To stop the containers and remove resources:
 
 ```bash
 docker compose down
 ```
 
-The service definition does **not** use a fixed `container_name`, so Docker is
-free to generate unique container names. This makes it easier to run multiple
-instances (e.g., in CI or on different projects) without name collisions.
+The service definitions do **not** use fixed `container_name` values, so Docker
+is free to generate unique container names. This makes it easier to run
+multiple instances (e.g., in CI or on different projects) without name
+collisions.
 
-The container exposes port `3000` and sets `NODE_ENV=production` by default.
+The backend container exposes port `8080` internally and sets
+`NODE_ENV=production` by default. The frontend container exposes port `3000`
+internally and is mapped to host port `3100`.
 
-A basic HTTP healthcheck is configured in `docker-compose.yml` against
-`http://localhost:3000/health`. The `/health` endpoint is part of the public
-API surface for operations and is covered by automated tests. If you change the
-path or semantics of this endpoint in the future, be sure to update the
-`healthcheck` configuration in `docker-compose.yml` accordingly so that
-container health reporting remains accurate.
+A basic HTTP healthcheck is configured for the backend service in
+`docker-compose.yml` against `http://localhost:8080/health`. The `/health`
+endpoint is part of the public API surface for operations and is covered by
+automated tests. If you change the path or semantics of this endpoint in the
+future, be sure to update the `healthcheck` configuration in
+`docker-compose.yml` accordingly so that container health reporting remains
+accurate.
 
 ### Run tests in a container (optional)
 
