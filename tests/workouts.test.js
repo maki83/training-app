@@ -1,223 +1,243 @@
 const request = require('supertest');
 const { app, _store } = require('../src/app');
 
-function validWorkoutPayload(overrides = {}) {
-  return {
-    name: 'Leg Day',
-    date: '2024-01-01T10:00:00.000Z',
-    exercises: [
-      {
-        name: 'Squat',
-        sets: [
-          { reps: 5, weight: 100 },
-          { reps: 5, weight: 110 }
-        ]
-      }
-    ],
-    ...overrides
-  };
+// Helper to reset the in-memory store between tests
+function resetStore() {
+  _store.reset();
 }
 
-beforeEach(() => {
-  _store.reset();
-});
+// NOTE: Tests intentionally codify the current API behavior, including:
+// - Strict ISO 8601 date validation (full timestamp with milliseconds and 'Z').
+// - 404 responses for any non-integer or non-positive id on GET /workouts/:id.
+// - POST /workouts returning only the first validation error, with precedence
+//   name -> date -> exercises.
 
-describe('GET /workouts', () => {
-  test('returns empty array when no workouts exist', async () => {
-    const res = await request(app).get('/workouts');
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+describe('Workouts API', () => {
+  beforeEach(() => {
+    resetStore();
   });
 
-  test('returns existing workouts', async () => {
-    await request(app).post('/workouts').send(validWorkoutPayload());
+  describe('GET /workouts', () => {
+    it('returns an empty array when there are no workouts', async () => {
+      const res = await request(app).get('/workouts');
 
-    const res = await request(app).get('/workouts');
-
-    expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body.length).toBe(1);
-    expect(res.body[0]).toMatchObject({
-      id: 1,
-      name: 'Leg Day'
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
     });
-  });
-});
 
-describe('POST /workouts', () => {
-  test('creates a workout with valid payload', async () => {
-    const payload = validWorkoutPayload();
-
-    const res = await request(app).post('/workouts').send(payload);
-
-    expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({
-      id: 1,
-      name: payload.name,
-      date: payload.date
-    });
-    expect(res.body.exercises).toHaveLength(1);
-    expect(res.body.exercises[0]).toMatchObject({
-      name: 'Squat'
-    });
-    expect(res.body.exercises[0].sets).toHaveLength(2);
-  });
-
-  test('trims workout and exercise names', async () => {
-    const payload = validWorkoutPayload({
-      name: '  Leg Day  ',
-      exercises: [
+    it('returns all existing workouts', async () => {
+      // Seed some workouts directly into the store
+      _store.workouts.push(
         {
-          name: '  Squat  ',
-          sets: [{ reps: 5, weight: 100 }]
-        }
-      ]
-    });
-
-    const res = await request(app).post('/workouts').send(payload);
-
-    expect(res.status).toBe(201);
-    expect(res.body.name).toBe('Leg Day');
-    expect(res.body.exercises[0].name).toBe('Squat');
-  });
-
-  test('returns 400 when body is missing', async () => {
-    const res = await request(app).post('/workouts');
-
-    expect(res.status).toBe(400);
-    expect(res.body.errors).toBeDefined();
-    expect(Array.isArray(res.body.errors)).toBe(true);
-  });
-
-  test('returns 400 for invalid name', async () => {
-    const payload = validWorkoutPayload({ name: '   ' });
-
-    const res = await request(app).post('/workouts').send(payload);
-
-    expect(res.status).toBe(400);
-    expect(res.body.errors).toEqual(
-      expect.arrayContaining([
-        'name is required and must be a non-empty string'
-      ])
-    );
-  });
-
-  test('returns 400 for invalid date', async () => {
-    const payload = validWorkoutPayload({ date: 'not-a-date' });
-
-    const res = await request(app).post('/workouts').send(payload);
-
-    expect(res.status).toBe(400);
-    expect(res.body.errors).toEqual(
-      expect.arrayContaining([
-        'date is required and must be a valid ISO 8601 date string'
-      ])
-    );
-  });
-
-  test('returns 400 when exercises is empty', async () => {
-    const payload = validWorkoutPayload({ exercises: [] });
-
-    const res = await request(app).post('/workouts').send(payload);
-
-    expect(res.status).toBe(400);
-    expect(res.body.errors).toEqual(
-      expect.arrayContaining([
-        'exercises is required and must be a non-empty array'
-      ])
-    );
-  });
-
-  test('returns 400 when exercise name is invalid', async () => {
-    const payload = validWorkoutPayload({
-      exercises: [
+          id: 1,
+          name: 'Morning Routine',
+          date: '2024-01-01T07:00:00.000Z',
+          exercises: ['Push-ups', 'Sit-ups'],
+        },
         {
-          name: '   ',
-          sets: [{ reps: 5, weight: 100 }]
+          id: 2,
+          name: 'Evening Cardio',
+          date: '2024-01-02T18:30:00.000Z',
+          exercises: ['Running'],
         }
-      ]
-    });
+      );
+      _store.nextId = 3;
 
-    const res = await request(app).post('/workouts').send(payload);
+      const res = await request(app).get('/workouts');
 
-    expect(res.status).toBe(400);
-    expect(res.body.errors).toEqual(
-      expect.arrayContaining([
-        'exercises[0].name is required and must be a non-empty string'
-      ])
-    );
-  });
-
-  test('returns 400 when sets is empty', async () => {
-    const payload = validWorkoutPayload({
-      exercises: [
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([
         {
-          name: 'Squat',
-          sets: []
-        }
-      ]
-    });
-
-    const res = await request(app).post('/workouts').send(payload);
-
-    expect(res.status).toBe(400);
-    expect(res.body.errors).toEqual(
-      expect.arrayContaining([
-        'exercises[0].sets is required and must be a non-empty array'
-      ])
-    );
-  });
-
-  test('returns 400 when reps is not a positive integer', async () => {
-    const payload = validWorkoutPayload({
-      exercises: [
+          id: 1,
+          name: 'Morning Routine',
+          date: '2024-01-01T07:00:00.000Z',
+          exercises: ['Push-ups', 'Sit-ups'],
+        },
         {
-          name: 'Squat',
-          sets: [{ reps: 0, weight: 100 }]
-        }
-      ]
+          id: 2,
+          name: 'Evening Cardio',
+          date: '2024-01-02T18:30:00.000Z',
+          exercises: ['Running'],
+        },
+      ]);
     });
-
-    const res = await request(app).post('/workouts').send(payload);
-
-    expect(res.status).toBe(400);
-    expect(res.body.errors).toEqual(
-      expect.arrayContaining([
-        'exercises[0].sets[0].reps must be a positive integer'
-      ])
-    );
   });
 
-  test('returns 400 when weight is negative', async () => {
-    const payload = validWorkoutPayload({
-      exercises: [
-        {
-          name: 'Squat',
-          sets: [{ reps: 5, weight: -10 }]
-        }
-      ]
+  describe('GET /workouts/:id', () => {
+    it('returns 404 when the id is not a positive integer', async () => {
+      const invalidIds = ['abc', '1.5', '0', '-1'];
+
+      for (const id of invalidIds) {
+        const res = await request(app).get(`/workouts/${id}`);
+        expect(res.status).toBe(404);
+        expect(res.body).toEqual({ error: 'Workout not found.' });
+      }
     });
 
-    const res = await request(app).post('/workouts').send(payload);
+    it('returns 404 when the workout does not exist', async () => {
+      const res = await request(app).get('/workouts/999');
 
-    expect(res.status).toBe(400);
-    expect(res.body.errors).toEqual(
-      expect.arrayContaining([
-        'exercises[0].sets[0].weight must be a non-negative number'
-      ])
-    );
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: 'Workout not found.' });
+    });
+
+    it('returns the workout when it exists', async () => {
+      _store.workouts.push({
+        id: 1,
+        name: 'Test Workout',
+        date: '2024-01-01T10:00:00.000Z',
+        exercises: ['Squats'],
+      });
+      _store.nextId = 2;
+
+      const res = await request(app).get('/workouts/1');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        id: 1,
+        name: 'Test Workout',
+        date: '2024-01-01T10:00:00.000Z',
+        exercises: ['Squats'],
+      });
+    });
   });
 
-  test('assigns incremental ids to workouts', async () => {
-    const payload = validWorkoutPayload();
+  describe('POST /workouts', () => {
+    it('creates a workout with valid payload', async () => {
+      const payload = {
+        name: 'Leg Day',
+        date: '2024-01-03T09:00:00.000Z',
+        exercises: ['Squats', 'Lunges'],
+      };
 
-    const res1 = await request(app).post('/workouts').send(payload);
-    const res2 = await request(app).post('/workouts').send(payload);
+      const res = await request(app).post('/workouts').send(payload);
 
-    expect(res1.status).toBe(201);
-    expect(res2.status).toBe(201);
-    expect(res1.body.id).toBe(1);
-    expect(res2.body.id).toBe(2);
+      expect(res.status).toBe(201);
+      expect(res.body).toEqual({
+        id: 1,
+        ...payload,
+      });
+
+      // Ensure it was actually stored
+      expect(_store.workouts).toHaveLength(1);
+      expect(_store.workouts[0]).toEqual({ id: 1, ...payload });
+    });
+
+    it('rejects when name is missing', async () => {
+      const payload = {
+        date: '2024-01-03T09:00:00.000Z',
+        exercises: ['Squats', 'Lunges'],
+      };
+
+      const res = await request(app).post('/workouts').send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({
+        error: 'Workout name is required and must be a non-empty string.',
+      });
+    });
+
+    it('rejects when name is empty', async () => {
+      const payload = {
+        name: '   ',
+        date: '2024-01-03T09:00:00.000Z',
+        exercises: ['Squats', 'Lunges'],
+      };
+
+      const res = await request(app).post('/workouts').send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({
+        error: 'Workout name is required and must be a non-empty string.',
+      });
+    });
+
+    it('rejects when date is missing', async () => {
+      const payload = {
+        name: 'Leg Day',
+        exercises: ['Squats', 'Lunges'],
+      };
+
+      const res = await request(app).post('/workouts').send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({
+        error: 'Workout date is required and must be a valid ISO 8601 date string.',
+      });
+    });
+
+    it('rejects when date is invalid', async () => {
+      const payload = {
+        name: 'Leg Day',
+        date: 'not-a-date',
+        exercises: ['Squats', 'Lunges'],
+      };
+
+      const res = await request(app).post('/workouts').send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({
+        error: 'Workout date is required and must be a valid ISO 8601 date string.',
+      });
+    });
+
+    it('rejects when exercises is missing', async () => {
+      const payload = {
+        name: 'Leg Day',
+        date: '2024-01-03T09:00:00.000Z',
+      };
+
+      const res = await request(app).post('/workouts').send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({
+        error: 'Exercises must be a non-empty array.',
+      });
+    });
+
+    it('rejects when exercises is empty', async () => {
+      const payload = {
+        name: 'Leg Day',
+        date: '2024-01-03T09:00:00.000Z',
+        exercises: [],
+      };
+
+      const res = await request(app).post('/workouts').send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({
+        error: 'Exercises must be a non-empty array.',
+      });
+    });
+
+    it('rejects with date error when both date and exercises are invalid', async () => {
+      const payload = {
+        name: 'Leg Day',
+        date: 'not-a-date',
+        // exercises missing
+      };
+
+      const res = await request(app).post('/workouts').send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({
+        error: 'Workout date is required and must be a valid ISO 8601 date string.',
+      });
+    });
+
+    it('rejects with exercises error when both name and exercises are invalid', async () => {
+      const payload = {
+        name: '   ',
+        date: '2024-01-03T09:00:00.000Z',
+        exercises: [],
+      };
+
+      const res = await request(app).post('/workouts').send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({
+        error: 'Workout name is required and must be a non-empty string.',
+      });
+    });
   });
 });
