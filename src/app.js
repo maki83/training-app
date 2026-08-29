@@ -4,61 +4,87 @@ const app = express();
 
 app.use(express.json());
 
-// In-memory data store
-const workouts = [];
-let nextWorkoutId = 1;
+// In-memory store for workouts
+const _store = {
+  workouts: [],
+  nextWorkoutId: 1,
+  reset() {
+    this.workouts = [];
+    this.nextWorkoutId = 1;
+  },
+};
 
-function isValidISODate(value) {
-  if (typeof value !== 'string') return false;
+// Helper to validate ISO 8601 date-time strings strictly (e.g., 2024-01-01T00:00:00.000Z)
+function _isValidISODateString(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  // Require full ISO 8601 UTC timestamp with milliseconds and trailing Z
+  const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+  if (!isoRegex.test(value)) {
+    return false;
+  }
+
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  return date.toISOString().startsWith(value);
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  return date.toISOString() === value;
 }
 
-function validateWorkoutPayload(body) {
+// Internal validator: returns an array of error messages. Empty array means valid.
+function _validateWorkoutPayload(payload) {
   const errors = [];
 
-  if (!body || typeof body !== 'object') {
-    errors.push('Body must be a JSON object');
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    errors.push('payload must be an object');
     return errors;
   }
 
-  if (typeof body.name !== 'string' || body.name.trim() === '') {
+  const { name, date, exercises } = payload;
+
+  if (typeof name !== 'string' || name.trim().length === 0) {
     errors.push('name is required and must be a non-empty string');
   }
 
-  if (typeof body.date !== 'string' || !isValidISODate(body.date)) {
+  if (!_isValidISODateString(date)) {
     errors.push('date is required and must be a valid ISO 8601 date string');
   }
 
-  if (!Array.isArray(body.exercises) || body.exercises.length === 0) {
+  if (!Array.isArray(exercises) || exercises.length === 0) {
     errors.push('exercises is required and must be a non-empty array');
   } else {
-    body.exercises.forEach((exercise, exerciseIndex) => {
-      if (!exercise || typeof exercise !== 'object') {
+    exercises.forEach((exercise, exerciseIndex) => {
+      if (typeof exercise !== 'object' || exercise === null || Array.isArray(exercise)) {
         errors.push(`exercises[${exerciseIndex}] must be an object`);
         return;
       }
 
-      if (typeof exercise.name !== 'string' || exercise.name.trim() === '') {
+      const { name: exerciseName, sets } = exercise;
+
+      if (typeof exerciseName !== 'string' || exerciseName.trim().length === 0) {
         errors.push(`exercises[${exerciseIndex}].name is required and must be a non-empty string`);
       }
 
-      if (!Array.isArray(exercise.sets) || exercise.sets.length === 0) {
+      if (!Array.isArray(sets) || sets.length === 0) {
         errors.push(`exercises[${exerciseIndex}].sets is required and must be a non-empty array`);
       } else {
-        exercise.sets.forEach((set, setIndex) => {
-          if (!set || typeof set !== 'object') {
+        sets.forEach((set, setIndex) => {
+          if (typeof set !== 'object' || set === null || Array.isArray(set)) {
             errors.push(`exercises[${exerciseIndex}].sets[${setIndex}] must be an object`);
             return;
           }
 
-          if (!Number.isInteger(set.reps) || set.reps <= 0) {
-            errors.push(`exercises[${exerciseIndex}].sets[${setIndex}].reps must be a positive integer`);
+          const { reps, weight } = set;
+
+          if (typeof reps !== 'number' || !Number.isFinite(reps) || reps <= 0) {
+            errors.push(`exercises[${exerciseIndex}].sets[${setIndex}].reps is required and must be a positive number`);
           }
 
-          if (typeof set.weight !== 'number' || !Number.isFinite(set.weight) || set.weight < 0) {
-            errors.push(`exercises[${exerciseIndex}].sets[${setIndex}].weight must be a non-negative number`);
+          if (typeof weight !== 'number' || !Number.isFinite(weight) || weight < 0) {
+            errors.push(`exercises[${exerciseIndex}].sets[${setIndex}].weight is required and must be a non-negative number`);
           }
         });
       }
@@ -68,43 +94,41 @@ function validateWorkoutPayload(body) {
   return errors;
 }
 
-app.get('/workouts', (req, res) => {
-  res.json(workouts);
-});
-
-app.post('/workouts', (req, res) => {
-  const errors = validateWorkoutPayload(req.body);
+// Middleware to validate workout payloads for POST /workouts
+function validateWorkout(req, res, next) {
+  const errors = _validateWorkoutPayload(req.body);
 
   if (errors.length > 0) {
     return res.status(400).json({ errors });
   }
 
-  const workout = {
-    id: nextWorkoutId++,
-    name: req.body.name.trim(),
-    date: req.body.date,
-    exercises: req.body.exercises.map((exercise) => ({
-      name: exercise.name.trim(),
-      sets: exercise.sets.map((set) => ({
-        reps: set.reps,
-        weight: set.weight
-      }))
-    }))
-  };
+  return next();
+}
 
-  workouts.push(workout);
-
-  return res.status(201).json(workout);
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
 });
 
-// Export app and store for testing
-module.exports = {
-  app,
-  _store: {
-    workouts,
-    reset() {
-      workouts.length = 0;
-      nextWorkoutId = 1;
-    }
-  }
-};
+// List workouts
+app.get('/workouts', (req, res) => {
+  res.json({ workouts: _store.workouts });
+});
+
+// Create workout
+app.post('/workouts', validateWorkout, (req, res) => {
+  const { name, date, exercises } = req.body;
+
+  const workout = {
+    id: _store.nextWorkoutId++,
+    name,
+    date,
+    exercises,
+  };
+
+  _store.workouts.push(workout);
+
+  res.status(201).json({ workout });
+});
+
+module.exports = { app, _store, _validateWorkoutPayload, _isValidISODateString };
