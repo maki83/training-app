@@ -1,15 +1,9 @@
 node_modules
 npm-debug.log
-Dockerfile*
-.dockerignore
+Dockerfile.test
+coverage
+.env
 .git
 .gitignore
-.env
-.env.*
-coverage
-*.log
-
-# Documentation and test configuration are intentionally excluded from the
-# production image. They must not be required for runtime behavior.
 README.md
 jest.config.cjs

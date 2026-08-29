@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Training App</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Training App</h1>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>Workouts</h2>
+        <ul id="workouts-list" class="workouts-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Workout Details</h2>
+        <div id="workout-details" class="workout-details">
+          <p>Select a workout to see details.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Create Workout</h2>
+        <form id="workout-form">
+          <div class="field">
+            <label for="workout-name">Name</label>
+            <input id="workout-name" name="name" type="text" required />
+          </div>
+
+          <div class="field">
+            <label for="workout-date">Date (UTC)</label>
+            <input
+              id="workout-date"
+              name="date"
+              type="datetime-local"
+              required
+            />
+          </div>
+
+          <div id="exercises-container" class="exercises-container"></div>
+
+          <button type="button" id="add-exercise">Add Exercise</button>
+          <button type="submit">Save Workout</button>
+        </form>
+
+        <div id="form-errors" class="form-errors" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script src="/main.js"></script>
+  </body>
+</html>

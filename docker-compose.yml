@@ -1,19 +1,32 @@
 version: "3.9"
 
 services:
-  training-app:
+  backend:
     build:
       context: .
       dockerfile: Dockerfile
-    image: training-app:latest
     environment:
-      NODE_ENV: production
-      PORT: "3000"
-    ports:
-      - "3000:3000"
+      - NODE_ENV=production
+      - PORT=8080
+    expose:
+      - "8080"
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', res => { if (res.statusCode !== 200) process.exit(1); }).on('error', () => process.exit(1));"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - BACKEND_URL=http://backend:8080
+    ports:
+      - "3100:3000"
+    depends_on:
+      backend:
+        condition: service_healthy

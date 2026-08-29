@@ -1,0 +1,20 @@
+# Production Dockerfile for the frontend static/proxy server
+
+FROM node:20-alpine AS base
+
+WORKDIR /usr/src/app
+
+# Install only production dependencies (reuse root package.json for express + proxy)
+COPY package.json package-lock.json ./
+RUN npm ci --only=production
+
+# Copy frontend server and static assets
+COPY src/frontend-server.js ./src/frontend-server.js
+COPY public ./public
+
+# Frontend listens on 3000 inside the container; mapped to 3100 on host by Compose
+EXPOSE 3000
+
+ENV NODE_ENV=production
+
+CMD ["node", "src/frontend-server.js"]
