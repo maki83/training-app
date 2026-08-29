@@ -1,0 +1,16 @@
+# Test Dockerfile for training-app
+#
+# This image is intended for running the Jest test suite in a container.
+
+FROM node:20-alpine
+
+WORKDIR /usr/src/app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+
+ENV NODE_ENV=test
+
+CMD ["npm", "test", "--", "--runInBand"]
