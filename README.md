@@ -1,232 +1,343 @@
 # training-app
 
-Workout tracking API MVP with a simple frontend.
+Workout tracking MVP with an Express API and a static HTML/CSS/JavaScript
+frontend. You can create workouts with exercises and sets, list saved workouts,
+and select a workout to view its details. Data is kept in backend process memory
+only; this is not a production-ready persistence or security setup.
 
 ## Local development
 
-Install dependencies:
+### Prerequisites and installation
+
+- Node.js and npm. CI uses Node.js 22; the Dockerfiles use Node.js 20 Alpine.
+  `package.json` does not declare a minimum Node.js version (`engines`). Use
+  Node.js 22 to match CI when developing locally.
+- Git for cloning the repository.
+- Optional: Docker with the Compose plugin for the container workflows below.
+- The command examples use a POSIX shell (such as Bash). The smoke test also
+  requires Bash and `curl`.
+
+For a new checkout:
 
 ```bash
-npm install
+git clone https://github.com/maki83/training-app.git
+cd training-app
+npm ci
 ```
 
-Run the backend API locally (default port 8080):
+For an existing checkout, change to its project root (the directory containing
+`package.json` and `package-lock.json`) and run `npm ci`. It installs both runtime
+and development dependencies from the lockfile. Run all commands below from
+that same project root.
+
+### Start the backend and frontend
+
+Use **two separate terminals**, both in the project root.
+
+Terminal 1 — backend:
 
 ```bash
-npm start
+PORT=8080 npm start
 ```
 
-The API will be available at:
-
-- http://localhost:8080
-
-Run the test suite:
+Terminal 2 — frontend and API proxy:
 
 ```bash
-npm test
+PORT=3000 BACKEND_URL=http://localhost:8080 node src/frontend-server.js
 ```
 
-## API overview
+Open <http://localhost:3000> for the UI. Check the backend directly at
+<http://localhost:8080/health>, or through the frontend proxy at
+<http://localhost:3000/api/health>. Both should return `{"status":"ok"}`.
 
-### Health
+`npm start` runs **only the backend**. Without `PORT=8080`, it defaults to port
+`3000`, which conflicts with the frontend's default port. There is no frontend
+npm script or build step; start its Node.js server explicitly as above. Stop each
+process with Ctrl+C. Restarting the backend clears all workouts.
 
-- `GET /health` → `{ "status": "ok" }`
+## Ports and configuration
 
-### Workouts
+| Component / mode | Listening port | Host access |
+| --- | --- | --- |
+| Local backend, unchanged default | `3000` | `http://localhost:3000` (conflicts with the default frontend) |
+| Local backend, recommended command above | `8080` | `http://localhost:8080` |
+| Local frontend | `3000` | `http://localhost:3000` |
+| Compose backend | `8080` inside the container | No published host port; frontend uses `http://backend:8080` |
+| Compose frontend | `3000` inside the container | `3100:3000`, UI at `http://localhost:3100` |
+| Standalone backend image (`Dockerfile` defaults, without Compose) | `3000` inside the container | No host port unless explicitly published when running it |
 
-#### Create workout
+No environment variables are mandatory. These settings are read from the process
+environment; the application does not automatically load a `.env` file.
 
-- `POST /workouts`
-- Request body (JSON):
+| Variable | Scope | Local default | Compose value |
+| --- | --- | --- | --- |
+| `PORT` | Backend process | `3000` | `8080` |
+| `PORT` | Frontend process | `3000` | `3000` (host mapping remains `3100:3000`) |
+| `BACKEND_URL` | Frontend proxy's backend target | `http://localhost:8080` | `http://backend:8080` |
+| `NODE_ENV` | Node/Express environment | Not set by the app; Express defaults to `development` | `production` for both services |
+
+Set `PORT` independently for each process. If you change the local backend port,
+update the frontend's `BACKEND_URL` to match. The backend Dockerfile itself sets
+`PORT=3000` and `NODE_ENV=production`; Compose overrides its port to `8080`.
+`NODE_ENV=production` does not add authentication or persistent storage.
+
+## Architecture
+
+```text
+Browser
+  -> frontend Express server (src/frontend-server.js)
+       /              -> static files in public/
+       /api/health    -> backend /health
+       /api/workouts  -> backend /workouts
+                           -> Express API (src/app.js, started by src/server.js)
+                           -> process-local in-memory workout array and ID counter
+```
+
+- `public/index.html`, `public/styles.css` and `public/main.js` implement the UI
+  without a frontend framework or bundler. Details are rendered from the list
+  response; selecting a workout does not call a separate detail endpoint.
+- `src/frontend-server.js` serves the static files and uses
+  `http-proxy-middleware` to forward `/api/*` to `BACKEND_URL`, stripping `/api`.
+  Browser requests use the frontend's origin, so the browser does not need direct
+  access to the backend container or a cross-origin API URL.
+- `src/server.js` starts the backend HTTP server. `src/app.js` defines JSON body
+  parsing, validation, the three API routes and the in-memory store.
+- There is no database or shared store. Each backend process has its own workouts
+  and sequential IDs, starting at `1` in a new process.
+
+## API
+
+The following URLs assume the recommended local setup. In Compose, replace the
+frontend origin `http://localhost:3000` with `http://localhost:3100`; the backend
+is not published directly to the host.
+
+| Method | Direct backend URL | Frontend proxy URL | Success status |
+| --- | --- | --- | --- |
+| `GET` | `http://localhost:8080/health` | `http://localhost:3000/api/health` | `200 OK` |
+| `GET` | `http://localhost:8080/workouts` | `http://localhost:3000/api/workouts` | `200 OK` |
+| `POST` | `http://localhost:8080/workouts` | `http://localhost:3000/api/workouts` | `201 Created` |
+
+### Health: `GET /health`
+
+```bash
+curl -i http://localhost:8080/health
+# Same endpoint through the frontend:
+curl -i http://localhost:3000/api/health
+```
+
+Response (`200 OK`):
+
+```json
+{ "status": "ok" }
+```
+
+This is a basic HTTP health endpoint, not a database or external-service check.
+
+### List workouts: `GET /workouts`
+
+```bash
+curl -i http://localhost:3000/api/workouts
+```
+
+Response for a fresh backend (`200 OK`):
+
+```json
+{ "workouts": [] }
+```
+
+After creation, `workouts` contains the saved workout objects (including their
+IDs, as shown below), in insertion order. There are no filters or pagination.
+
+### Create a workout: `POST /workouts`
+
+Send JSON with `Content-Type: application/json`. This example uses the proxy;
+use `http://localhost:8080/workouts` for direct backend access.
+
+```bash
+curl -i http://localhost:3000/api/workouts \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Leg day","date":"2024-01-01T00:00:00.000Z","exercises":[{"name":"Squat","sets":[{"reps":5,"weight":100}]}]}'
+```
+
+Response (`201 Created`, ID shown for the first workout in a fresh backend):
 
 ```json
 {
-  "name": "Leg day",
-  "date": "2024-01-01T00:00:00.000Z",
-  "exercises": [
-    {
-      "name": "Squat",
-      "sets": [
-        { "reps": 5, "weight": 100 }
-      ]
-    }
-  ]
+  "workout": {
+    "id": 1,
+    "name": "Leg day",
+    "date": "2024-01-01T00:00:00.000Z",
+    "exercises": [
+      {
+        "name": "Squat",
+        "sets": [{ "reps": 5, "weight": 100 }]
+      }
+    ]
+  }
 }
 ```
 
-Constraints:
+Validation rules:
 
-- `name`: required, non-empty string.
-- `date`: required, must be a valid ISO 8601 UTC datetime string with `T` and `Z`,
-  e.g. `2024-01-01T00:00:00.000Z`.
-- `exercises`: required, non-empty array.
-  - Each exercise must be an object with:
-    - `name`: required, non-empty string.
-    - `sets`: required, non-empty array.
-      - Each set must be an object with:
-        - `reps`: required, positive number.
-        - `weight`: required, non-negative number.
+- The payload must be an object, not `null` or an array.
+- `name`: required string containing at least one non-whitespace character.
+- `date`: required, valid UTC timestamp in the exact form
+  `YYYY-MM-DDTHH:mm:ss.sssZ`. It must include **exactly three millisecond digits**
+  and a trailing `Z`, and represent a real date/time. For example,
+  `2024-01-01T00:00:00.000Z` is valid; `2024-01-01`,
+  `2024-01-01T00:00:00Z`, timezone offsets such as `+00:00`, and impossible dates
+  such as `2024-02-30T00:00:00.000Z` are invalid.
+- `exercises`: required, non-empty array of objects. Each exercise requires:
+  - `name`: string containing at least one non-whitespace character.
+  - `sets`: non-empty array of objects. Each set requires:
+    - `reps`: finite JSON number greater than `0`.
+    - `weight`: finite JSON number greater than or equal to `0`.
+- Numeric strings are not accepted. Decimal numbers are accepted; the API does
+  not enforce integer reps. Names are checked with `trim()` but stored unchanged.
 
-On success:
+Workout validation failures return `400 Bad Request` with an `errors` array.
+For example, this invalid request:
 
-- `201 Created` with `{ "workout": { ... } }`.
+```bash
+curl -i http://localhost:3000/api/workouts \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"","date":"2024-01-01","exercises":[]}'
+```
 
-On validation error:
-
-- `400 Bad Request` with:
+returns:
 
 ```json
 {
   "errors": [
     "name is required and must be a non-empty string",
-    "date is required and must be a valid ISO 8601 date string"
+    "date is required and must be a valid ISO 8601 date string",
+    "exercises is required and must be a non-empty array"
   ]
 }
 ```
 
-## Frontend overview
+Nested validation errors identify the relevant array indexes, for example
+`exercises[0].sets[0].reps is required and must be a positive number`. Malformed
+JSON is rejected by Express with `400 Bad Request` before workout validation;
+its response is not the workout validator's `errors` JSON format.
 
-A minimal responsive frontend is provided under `public/` and is served as a
-separate service in Docker Compose. It allows you to:
+## Docker Compose
 
-- View the list of workouts.
-- View details for a selected workout (exercises and sets).
-- Create a new workout.
-- Add exercises and sets (reps and weight) before submitting.
-
-The frontend talks to the backend API via a simple `/api` proxy configured in
-`docker-compose.yml`.
-
-## Configuration
-
-The API currently does not require any mandatory environment variables.
-The following variables are recognized and can be overridden for production:
-
-- `PORT` (default: `8080`) – HTTP port the backend server listens on.
-- `NODE_ENV` (default: `development` locally, `production` in the container) –
-  Node environment flag.
-
-The frontend server also recognizes:
-
-- `PORT` (default: `3000` inside the container) – HTTP port the frontend
-  server listens on.
-- `BACKEND_URL` (default: `http://localhost:8080`) – URL of the backend API
-  used by the proxy for `/api/*` requests.
-
-If you introduce new configuration in the future (e.g., database URLs, API
-keys), ensure they are documented here and validated at startup.
-
-## Containerized deployment
-
-This project includes a production-ready Docker setup using Node.js 20 Alpine.
-The backend and frontend run as separate services.
-
-### Build and run with Docker Compose
-
-From the project root:
+From the project root, build and start the separate backend and frontend
+services:
 
 ```bash
-# Build the images and start the services in the background
 docker compose up -d --build
 ```
 
-Services:
-
-- `backend` – Express API, internal to the Docker network, listening on port
-  `8080` inside the container.
-- `frontend` – Static file + proxy server, listening on port `3000` inside the
-  container and exposed on host port `3100`.
-
-Once started, access the application via the frontend:
-
-- Frontend: http://localhost:3100
-
-The backend is not published on a host port by default; it is only reachable
-from other services in the Docker network. The frontend proxies API requests
-from `/api/*` to the backend.
-
-To view logs:
+Open <http://localhost:3100>. The API is reachable through that same origin,
+for example:
 
 ```bash
-# Backend logs
-docker compose logs -f backend
-
-# Frontend logs
-docker compose logs -f frontend
+curl -i http://localhost:3100/api/health
+curl -i http://localhost:3100/api/workouts
 ```
 
-To stop the containers and remove resources:
+The frontend proxies to `http://backend:8080`. The backend has no published host
+port: `expose: 8080` is not a host port mapping. Compose checks the backend at
+`http://localhost:8080/health` **inside its container**, and starts the frontend
+only once the backend is healthy.
 
 ```bash
+# Service status and logs
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f frontend
+
+# Stop and remove the Compose containers/network
 docker compose down
 ```
 
-The service definitions do **not** use fixed `container_name` values, so Docker
-is free to generate unique container names. This makes it easier to run
-multiple instances (e.g., in CI or on different projects) without name
-collisions.
+Images use Node.js 20 Alpine. Runtime images install production dependencies
+only; use local development dependencies or the test image for Jest. There are
+no data volumes, and workouts are lost whenever the backend process restarts,
+including when its container is recreated.
 
-The backend container exposes port `8080` internally and sets
-`NODE_ENV=production` by default. The frontend container exposes port `3000`
-internally and is mapped to host port `3100`.
+## Tests
 
-A basic HTTP healthcheck is configured for the backend service in
-`docker-compose.yml` against `http://localhost:8080/health`. The `/health`
-endpoint is part of the public API surface for operations and is covered by
-automated tests. If you change the path or semantics of this endpoint in the
-future, be sure to update the `healthcheck` configuration in
-`docker-compose.yml` accordingly so that container health reporting remains
-accurate.
+Install dependencies with `npm ci` first. No running backend or frontend is
+needed for Jest:
 
-### Run tests in a container (optional)
+```bash
+# Full existing Jest suite
+npm test
 
-The provided `Dockerfile` is optimized for production and installs only
-production dependencies.
+# Same test command used by .github/workflows/ci.yml (CI uses Node.js 22)
+npm test -- --ci --runInBand
 
-For a containerized test workflow, a separate `Dockerfile.test` is provided.
-It installs devDependencies and runs the Jest test suite.
+# Single test file
+npm test -- tests/workouts.test.js --runInBand
 
-Build the test image:
+# Optional coverage report (written to coverage/)
+npm test -- --coverage --runInBand
+```
+
+`jest.config.cjs` splits tests into `node` and `jsdom` projects. The suite covers
+health/server startup, workout creation/listing, payload/date validation, and
+frontend list rendering. The DOM test mocks `fetch`; it does **not** verify the
+real proxy, the complete create-workout UI flow, or Compose networking.
+
+### Docker tests
+
+Build and run the dedicated test image (its default command is
+`npm test -- --runInBand`):
 
 ```bash
 docker build -f Dockerfile.test -t training-app-test .
-```
-
-Run the tests inside a container:
-
-```bash
 docker run --rm training-app-test
+
+# Run one test file instead
+docker run --rm training-app-test npm test -- tests/workouts.test.js --runInBand
 ```
 
-You can also override the command if needed, for example to run a single test
-file:
+**Configuration difference:** `.dockerignore` excludes both `README.md` and
+`jest.config.cjs` from the build context, including for `Dockerfile.test`.
+The test image installs devDependencies and copies the tests, but it does not
+contain those two files. Without the configuration, Jest uses its default
+single-project discovery; the DOM test still selects jsdom via its per-file
+annotation. This is not the same project configuration as local/CI runs.
+
+To run with the repository's Jest project configuration without changing the
+image, mount that file read-only from the project root:
 
 ```bash
-docker run --rm training-app-test npm test -- tests/workouts.test.js
+docker run --rm \
+  --mount "type=bind,source=$(pwd)/jest.config.cjs,target=/usr/src/app/jest.config.cjs,readonly" \
+  training-app-test npm test -- --ci --runInBand
 ```
 
-> Note: Using `Dockerfile.test` is optional and may not be wired into all CI
-> environments. If you change the Jest test commands in `package.json`, ensure
-> any Docker-based test workflows are updated accordingly.
-
-For most local development workflows, running tests on the host machine is
-still the simplest option:
+The existing Compose smoke test builds/starts the stack, waits for the frontend
+on host port `3100`, and cleans up its Compose resources on exit:
 
 ```bash
-npm test
+bash tests/container.smoke.test.sh
 ```
 
-### Docker build context
+It requires Docker Compose, Bash, `curl` and a free host port `3100`. It relies on
+Compose's backend health dependency but only explicitly checks frontend HTTP
+reachability; verify `/api/health`, workout listing and creation separately for
+a real proxy check. The current CI workflow runs Jest, not these Docker commands.
 
-The `.dockerignore` file intentionally excludes development-only artifacts such
-as `node_modules`, VCS metadata, coverage output, environment files, and also
-`README.md` and `jest.config.cjs`.
+## Limitations
 
-Excluding `README.md` keeps the production image small and focused on runtime
-concerns rather than documentation. Excluding `jest.config.cjs` reflects that
-Jest and the test configuration are not needed in the production container.
-
-If you need to run tests or inspect documentation inside a container, prefer
-building with `Dockerfile.test` (which includes devDependencies and Jest) or
-mount the repository into a throwaway container instead of relying on the
-production image.
+- **No persistence:** all workouts and the ID counter live in backend process
+  memory and are reset on restart. There is no database, backup or recovery.
+- **No shared state:** multiple backend processes/replicas hold independent data
+  and can issue the same IDs; this is not a shared multi-instance store.
+- **No authentication or authorization:** any client that can reach the API
+  (including through the frontend proxy) can list and create workouts. There is
+  no user/account separation. Do not expose it as a secured production service.
+- **Limited API:** only health, list and create are implemented. There are no
+  update/delete routes, single-workout detail route, filtering or pagination.
+  The UI displays details from its downloaded list.
+- **Basic date UI:** the form uses `datetime-local` and JavaScript converts the
+  entered local time to UTC with `toISOString()` before submission, despite the
+  form's “Date (UTC)” label. Displayed dates use the browser's local timezone.
+- **Limited verification:** the existing DOM test is not an end-to-end browser
+  test, and a successful health response alone does not verify the whole UI/API
+  flow or provide production readiness guarantees.
