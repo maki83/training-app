@@ -47,6 +47,18 @@ describe('frontend API proxy with a real backend', () => {
     }
   });
 
+  test.each([
+    ['/', 'text/html', 'Training overview'],
+    ['/statistics.js', 'javascript', 'calculateStatistics'],
+    ['/main.js', 'javascript', 'initFrontend'],
+    ['/styles.css', 'text/css', '.stats-grid'],
+  ])('serves dashboard resource %s without a server change', async (url, contentType, expected) => {
+    const res = await request(frontend).get(url).timeout(2000);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain(contentType);
+    expect(res.text).toContain(expected);
+  });
+
   test('GET /api/health reaches the backend with the /api prefix removed', async () => {
     const res = await request(frontend).get('/api/health').timeout(2000);
 
