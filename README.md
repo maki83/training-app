@@ -2,8 +2,9 @@
 
 Workout tracking MVP with an Express API and a static HTML/CSS/JavaScript
 frontend. You can create workouts with exercises and sets, list saved workouts,
-and select a workout to view its details. Data is kept in backend process memory
-only; this is not a production-ready persistence or security setup.
+and select a workout to view its details. The interactive dashboard summarizes
+your training with statistics, exercise records and daily charts. Data is kept
+in backend process memory only; this is not a production-ready persistence or security setup.
 
 ## Local development
 
@@ -55,6 +56,66 @@ Open <http://localhost:3000> for the UI. Check the backend directly at
 npm script or build step; start its Node.js server explicitly as above. Stop each
 process with Ctrl+C. Restarting the backend clears all workouts.
 
+## Training dashboard
+
+The **Dashboard** is the default view. Use **Workout history** or **Log a workout**
+to browse all saved sessions, select their details, or register a session. Saving
+refreshes the history and dashboard from the same API response without reloading
+the page. Repeated initialization and double submissions do not register duplicate
+listeners or send duplicate saves. A failed refresh after a successful save is
+shown separately: retry loading rather than submitting the saved workout again.
+
+The responsive layout includes:
+
+- Cards for all-time workouts, this week's workouts, this month's workouts,
+  total repetitions, and total training volume in **kg·reps**.
+- The five most frequent exercises, counted by distinct workouts.
+- Independent single-set weight and repetition records for **all** exercises.
+- A daily activity chart for the last **30 local calendar days**, including today.
+- A daily volume chart with a keyboard-accessible **30 / 90 day** selector.
+  Both charts include dates with no workouts and expandable daily data tables
+  as text alternatives. Bar titles provide individual values on hover.
+- Separate loading, empty-data and load-error states with a retry control.
+  No completed sessions (including a history containing only future sessions)
+  shows guidance and zero-filled charts rather than an error.
+
+### Calculation rules
+
+`public/statistics.js` contains pure calculations shared by the browser and Jest.
+`calculateStatistics(workouts, reference, volumeDays)` takes an explicit reference
+time and supports volume periods of 30 (default) or 90 days.
+
+- Every saved session with a valid date **at or before the reference instant**
+  counts as completed. There is no completed/status field. Later sessions,
+  including later today, stay visible in history but do not affect any statistic
+  or record. The dashboard recalculates on data load, view navigation and period
+  changes; it does not have a background clock or live API polling.
+- Dates and periods use the browser's **local timezone**. Weeks start Monday at
+  00:00; months start on the first at 00:00. Chart days are advanced with local
+  calendar arithmetic, not fixed 24-hour increments, to handle daylight saving.
+  The form accepts local date/time and converts it to the API's UTC format.
+- Repetitions are summed across all sets; volume is the sum of `weight * reps`
+  across those sets. Zero-weight sets count toward repetitions and records,
+  but add zero volume. Decimal weights and reps are supported, as in the API.
+- Exercise names are normalized using Unicode NFC, trimmed, internal whitespace
+  collapsed to one space, and lowercased. These canonical lowercase names are
+  displayed in rankings and records; stored names and workout details are not
+  modified. Accents and punctuation remain significant; aliases are not merged.
+- An exercise counts once per workout even if listed repeatedly. Ranking uses
+  workout count descending, then normalized name in JavaScript code-unit order
+  for deterministic ties. Records are sorted by the same name ordering. Weight
+  and repetition maxima are independent and can come from different sets.
+- Calculations use JavaScript numbers; displayed values are rounded to at most
+  two decimal places. Invalid dates/sets are ignored defensively, not coerced.
+  An unrepresentable product or sum is marked **Too large**, with a warning and
+  a dashed outline for affected chart days; it is never presented as zero,
+  `NaN`, or `Infinity`. Other representable values remain visible.
+
+Statistics describe the **entire shared, in-memory dataset**, not a private user
+account. Reloading or retrying fetches all sessions without pagination. Restarting
+the backend loses both history and statistics. No chart library, build step,
+new dependency, API change or server configuration is required.
+
 ## Ports and configuration
 
 | Component / mode | Listening port | Host access |
@@ -93,7 +154,8 @@ Browser
                            -> process-local in-memory workout array and ID counter
 ```
 
-- `public/index.html`, `public/styles.css` and `public/main.js` implement the UI
+- `public/index.html`, `public/styles.css`, `public/statistics.js` and
+  `public/main.js` implement the UI
   without a frontend framework or bundler. Details are rendered from the list
   response; selecting a workout does not call a separate detail endpoint.
 - `src/frontend-server.js` serves the static files and uses
@@ -278,11 +340,19 @@ npm test -- --coverage --runInBand
 ```
 
 `jest.config.cjs` splits tests into `node` and `jsdom` projects. The suite covers
-health/server startup, workout creation/listing, payload/date validation, and
-frontend list rendering. `tests/frontend.proxy.test.js` also checks health,
+health/server startup, workout creation/listing, payload/date validation, pure
+statistics (including calendar boundaries, DST in Stockholm/New York, name
+normalization and overflow), and real DOM rendering/navigation/form submissions.
+`tests/frontend.proxy.test.js` also checks health,
 listing, and valid/invalid creation through the real frontend proxy against a
-local backend on an ephemeral port, without mocks. The DOM test mocks `fetch`;
-neither suite verifies the complete create-workout UI flow or Compose networking.
+local backend on an ephemeral port, without mocks, plus static delivery of all
+dashboard assets. DOM tests use a small HTTP-to-fetch adapter against the real
+API/validator/store because jsdom has no native fetch; only transport-error,
+malformed-response and delayed-response injection is used to test recovery and
+request ordering deterministically. They
+exercise loading, empty/error/retry, 30/90-day selection, safe text rendering and
+creation updating both views. Jest does not verify browser layout or Compose
+networking.
 
 ### Docker tests
 
@@ -385,8 +455,8 @@ The authentication and other application limitations below remain unchanged.
   update/delete routes, single-workout detail route, filtering or pagination.
   The UI displays details from its downloaded list.
 - **Basic date UI:** the form uses `datetime-local` and JavaScript converts the
-  entered local time to UTC with `toISOString()` before submission, despite the
-  form's “Date (UTC)” label. Displayed dates use the browser's local timezone.
-- **Limited verification:** the existing DOM test is not an end-to-end browser
-  test, and a successful health response alone does not verify the whole UI/API
+  entered local time to UTC with `toISOString()` before submission. Displayed
+  dates use the browser's local timezone.
+- **Limited verification:** the DOM integration tests are not end-to-end browser
+  tests, and a successful health response alone does not verify the whole UI/API
   flow or provide production readiness guarantees.

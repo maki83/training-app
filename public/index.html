@@ -3,55 +3,167 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Training App</title>
+    <title>Training App · Dashboard</title>
     <link rel="stylesheet" href="/styles.css" />
+    <script src="/statistics.js" defer></script>
+    <script src="/main.js" defer></script>
   </head>
   <body>
-    <header>
-      <h1>Training App</h1>
+    <a class="skip-link" href="#app">Skip to content</a>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">↗</span>
+        <h1>Training App</h1>
+      </div>
+      <p class="muted">Every session counts.</p>
     </header>
+    <main id="app" class="layout" tabindex="-1">
+      <nav class="view-nav" aria-label="Main navigation">
+        <button type="button" data-view="dashboard" aria-controls="dashboard-view" aria-pressed="true">Dashboard</button>
+        <button type="button" data-view="history" aria-controls="history-view" aria-pressed="false">Workout history</button>
+      </nav>
 
-    <main class="layout">
-      <section class="panel">
-        <h2>Workouts</h2>
-        <ul id="workouts-list" class="workouts-list"></ul>
-      </section>
+      <div id="data-status" class="data-status" role="status" aria-live="polite">
+        <span id="data-message">Loading workouts…</span>
+        <button type="button" id="retry-load" hidden>Try again</button>
+      </div>
 
-      <section class="panel">
-        <h2>Workout Details</h2>
-        <div id="workout-details" class="workout-details">
-          <p>Select a workout to see details.</p>
+      <section id="dashboard-view" aria-labelledby="dashboard-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">YOUR TRAINING, AT A GLANCE</p>
+            <h2 id="dashboard-heading" tabindex="-1">Training overview</h2>
+          </div>
+          <button type="button" data-view="history" class="secondary">Log a workout <span aria-hidden="true">→</span></button>
+        </div>
+        <p class="muted">
+          Completed sessions in your local time. Future-dated sessions stay in workout history.
+        </p>
+        <div id="dashboard-content" hidden>
+          <div id="dashboard-empty" class="empty-state" hidden>
+            <h3>No completed workouts yet</h3>
+            <p>Log your first session to start building your training story. Future sessions will count when their time arrives.</p>
+          </div>
+          <p id="statistics-warning" class="warning" role="status" hidden>
+            Some totals are too large to calculate. They are marked “Too large”;
+            dashed chart outlines are not zero values.
+          </p>
+          <div class="stats-grid" aria-label="Training totals">
+            <article class="stat-card">
+              <h3>Total workouts</h3>
+              <p id="stat-workouts" class="stat-value">0</p>
+              <span class="muted">All time</span>
+            </article>
+            <article class="stat-card">
+              <h3>This week</h3>
+              <p id="stat-week" class="stat-value">0</p>
+              <span class="muted">From Monday</span>
+            </article>
+            <article class="stat-card">
+              <h3>This month</h3>
+              <p id="stat-month" class="stat-value">0</p>
+              <span class="muted">Calendar month</span>
+            </article>
+            <article class="stat-card">
+              <h3>Total repetitions</h3>
+              <p id="stat-reps" class="stat-value">0</p>
+              <span class="muted">Across all sets</span>
+            </article>
+            <article class="stat-card accent-card">
+              <h3>Total volume</h3>
+              <p class="stat-value"><span id="stat-volume">0</span> <small>kg·reps</small></p>
+              <span class="muted">Weight × repetitions</span>
+            </article>
+          </div>
+          <div class="dashboard-grid">
+            <section class="panel" aria-labelledby="activity-heading">
+              <h3 id="activity-heading">Training activity</h3>
+              <p class="muted">Daily workouts · Last 30 days, including today</p>
+              <div id="activity-chart"></div>
+            </section>
+            <section class="panel" aria-labelledby="volume-heading">
+              <div class="panel-heading">
+                <h3 id="volume-heading">Volume over time</h3>
+                <div>
+                  <label for="volume-period">Period</label>
+                  <select id="volume-period">
+                    <option value="30">Last 30 days</option>
+                    <option value="90">Last 90 days</option>
+                  </select>
+                </div>
+              </div>
+              <p class="muted">Daily weight × repetitions · kg·reps</p>
+              <div id="volume-chart" aria-live="polite"></div>
+            </section>
+            <section class="panel" aria-labelledby="top-heading">
+              <h3 id="top-heading">Your top 5 exercises</h3>
+              <p class="muted">Ranked by number of distinct workouts</p>
+              <ol id="top-exercises" class="top-exercises"></ol>
+              <p id="top-empty" class="muted" hidden>No exercises to rank yet.</p>
+            </section>
+            <section class="panel" aria-labelledby="records-heading">
+              <h3 id="records-heading">Personal records</h3>
+              <p class="muted">Independent best weight and reps from a single set, for every exercise</p>
+              <div class="table-scroll" tabindex="0" role="region" aria-label="Personal records, scroll horizontally if needed">
+                <table>
+                  <caption class="sr-only">All exercise records</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Exercise</th>
+                      <th scope="col">Weight (kg)</th>
+                      <th scope="col">Reps</th>
+                    </tr>
+                  </thead>
+                  <tbody id="exercise-records"></tbody>
+                </table>
+              </div>
+              <p id="records-empty" class="muted" hidden>No records yet. Your first workout is a fresh start.</p>
+            </section>
+          </div>
         </div>
       </section>
 
-      <section class="panel">
-        <h2>Create Workout</h2>
-        <form id="workout-form">
-          <div class="field">
-            <label for="workout-name">Name</label>
-            <input id="workout-name" name="name" type="text" required />
+      <section id="history-view" aria-labelledby="history-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">BUILD YOUR CONSISTENCY</p>
+            <h2 id="history-heading" tabindex="-1">Workout history</h2>
           </div>
-
-          <div class="field">
-            <label for="workout-date">Date (UTC)</label>
-            <input
-              id="workout-date"
-              name="date"
-              type="datetime-local"
-              required
-            />
-          </div>
-
-          <div id="exercises-container" class="exercises-container"></div>
-
-          <button type="button" id="add-exercise">Add Exercise</button>
-          <button type="submit">Save Workout</button>
-        </form>
-
-        <div id="form-errors" class="form-errors" aria-live="polite"></div>
+          <button type="button" data-view="dashboard" class="secondary">Back to dashboard</button>
+        </div>
+        <div class="history-grid">
+          <section class="panel">
+            <h3>Saved workouts</h3>
+            <ul id="workouts-list" class="workouts-list"></ul>
+          </section>
+          <section class="panel">
+            <h3>Workout details</h3>
+            <div id="workout-details" class="workout-details">
+              <p>Select a workout to see details.</p>
+            </div>
+          </section>
+          <section class="panel form-panel">
+            <h3>Create workout</h3>
+            <form id="workout-form">
+              <div class="field">
+                <label for="workout-name">Name</label>
+                <input id="workout-name" name="name" type="text" required />
+              </div>
+              <div class="field">
+                <label for="workout-date">Date and time (local)</label>
+                <input id="workout-date" name="date" type="datetime-local" required />
+              </div>
+              <div id="exercises-container" class="exercises-container"></div>
+              <div class="form-actions">
+                <button type="button" id="add-exercise" class="secondary">Add exercise</button>
+                <button type="submit">Save workout</button>
+              </div>
+            </form>
+            <div id="form-errors" class="form-errors" role="alert" hidden></div>
+            <p id="form-success" role="status" aria-live="polite"></p>
+          </section>
+        </div>
       </section>
     </main>
-
-    <script src="/main.js"></script>
   </body>
 </html>
