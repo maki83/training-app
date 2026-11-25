@@ -279,8 +279,10 @@ npm test -- --coverage --runInBand
 
 `jest.config.cjs` splits tests into `node` and `jsdom` projects. The suite covers
 health/server startup, workout creation/listing, payload/date validation, and
-frontend list rendering. The DOM test mocks `fetch`; it does **not** verify the
-real proxy, the complete create-workout UI flow, or Compose networking.
+frontend list rendering. `tests/frontend.proxy.test.js` also checks health,
+listing, and valid/invalid creation through the real frontend proxy against a
+local backend on an ephemeral port, without mocks. The DOM test mocks `fetch`;
+neither suite verifies the complete create-workout UI flow or Compose networking.
 
 ### Docker tests
 
@@ -322,6 +324,53 @@ It requires Docker Compose, Bash, `curl` and a free host port `3100`. It relies 
 Compose's backend health dependency but only explicitly checks frontend HTTP
 reachability; verify `/api/health`, workout listing and creation separately for
 a real proxy check. The current CI workflow runs Jest, not these Docker commands.
+
+## Dependency security review (issue #13)
+
+The 2026-11-25 baseline audit reported **two high-severity package findings**,
+covering six advisories (five high and one moderate), not just two individual CVEs:
+
+- Production: `http-proxy-middleware@2.0.10 > http-proxy@1.18.1 >
+  follow-redirects@1.16.0`, patched to **1.16.2** within `^1.0.0`.
+- Development: `jest@29.7.0 > @jest/core@29.7.0 > @jest/reporters@29.7.0 >
+  glob@7.2.3 > minimatch@3.1.5 > brace-expansion@1.1.18`, patched to
+  **1.1.21** within `^1.1.7`. Other Jest paths share this same installed copy.
+
+| Package | Advisory / CVE | Impact in the vulnerable library |
+| --- | --- | --- |
+| follow-redirects | [GHSA-q3jh-wrc6-jgq8](https://github.com/advisories/GHSA-q3jh-wrc6-jgq8) / CVE-2026-111756 | Array-form headers bypass cross-origin credential stripping |
+| follow-redirects | [GHSA-8r9p-f939-6h3c](https://github.com/advisories/GHSA-8r9p-f939-6h3c) / CVE-2026-111755 | Incomplete regex escaping can leak custom sensitive headers |
+| follow-redirects | [GHSA-mrwp-f3q8-3g9p](https://github.com/advisories/GHSA-mrwp-f3q8-3g9p) / CVE-2026-116689 | Cross-realm sensitive-header arrays are discarded, allowing credential leakage |
+| brace-expansion | [GHSA-6j4f-fj2g-mc7p](https://github.com/advisories/GHSA-6j4f-fj2g-mc7p) / CVE-2026-102276 | Comma parsing recursion can exhaust the stack (high) |
+| brace-expansion | [GHSA-qhr7-859c-m2p7](https://github.com/advisories/GHSA-qhr7-859c-m2p7) / CVE-2026-102278 | Nested brace recursion can exhaust the stack (high) |
+| brace-expansion | [GHSA-q2hr-2g5m-vwhr](https://github.com/advisories/GHSA-q2hr-2g5m-vwhr) / CVE-2026-102277 | Quadratic expansion can exhaust CPU (moderate) |
+
+**Exposure:** the frontend uses a configured backend target and does not enable
+`followRedirects`; `http-proxy` therefore uses Node's native HTTP(S) client instead
+of the vulnerable redirect handling. The app does not configure `sensitiveHeaders`.
+The vulnerable production package was present, but an exploitable credential-leak
+path through the current application has not been demonstrated. Reassess if proxy
+options or targets change. `brace-expansion` processes test-tooling glob patterns;
+no API-input path to it was identified, and production-only installs omit it.
+Untrusted patterns in development/CI could still have triggered the old DoS bugs.
+Version 1.1.20 alone would leave the moderate CPU issue; 1.16.1 would leave the
+cross-realm credential issue, hence the selected minimal patch versions.
+
+**Verification:** clean installs and all 23 Jest tests (19 existing plus four
+proxy tests) passed on Node 20.20.2 and 22.23.5 with npm 10.9.11, and Node 24.22.2
+with npm 12.2.2. `npm audit`, `npm audit --json`, and `npm audit --omit=dev`
+reported **zero vulnerabilities** after the update; `npm ls follow-redirects
+brace-expansion` showed only the patched copies.
+
+**Remaining risks:** an audit is a point-in-time dependency advisory check, not
+proof of application security or a container/OS scan. Deprecated development
+packages (`inflight`, `glob`, `abab`, `domexception`, `whatwg-encoding`) remain
+maintenance debt; Node 22/24 also report `http-proxy`'s deprecated `util._extend`.
+The unchanged Dockerfiles use [Node 20, now end-of-life](https://nodejs.org/en/about/previous-releases),
+which needs a separately scoped runtime update. Docker build/Compose smoke
+verification was blocked by the unavailable Docker daemon; local Node 20 tests
+are not container verification. Hosted PR CI must still run after publication.
+The authentication and other application limitations below remain unchanged.
 
 ## Limitations
 
