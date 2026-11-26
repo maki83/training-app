@@ -47,6 +47,20 @@ describe('frontend API proxy with a real backend', () => {
     }
   });
 
+  test('serves calendar navigation and assets alongside the API', async () => {
+    const page = await request(frontend).get('/').timeout(2000);
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('id="nav-calendar"');
+    expect(page.text).toContain('id="calendar-days"');
+    expect(page.text).toContain('id="workout-form"');
+    const script = await request(frontend).get('/main.js').timeout(2000);
+    expect(script.status).toBe(200);
+    expect(script.type).toMatch(/javascript/);
+    const styles = await request(frontend).get('/styles.css').timeout(2000);
+    expect(styles.status).toBe(200);
+    expect(styles.type).toBe('text/css');
+  });
+
   test('GET /api/health reaches the backend with the /api prefix removed', async () => {
     const res = await request(frontend).get('/api/health').timeout(2000);
 

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="sv">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,51 +7,83 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header>
+    <header class="app-header">
       <h1>Training App</h1>
+      <nav aria-label="Huvudmeny">
+        <button type="button" id="nav-workouts" aria-controls="workouts-view" aria-current="page">Träningspass</button>
+        <button type="button" id="nav-calendar" aria-controls="calendar-view">Kalender</button>
+      </nav>
     </header>
 
-    <main class="layout">
-      <section class="panel">
-        <h2>Workouts</h2>
-        <ul id="workouts-list" class="workouts-list"></ul>
-      </section>
+    <main>
+      <div id="workouts-view" class="app-main">
+        <section class="panel">
+          <h2>Träningspass</h2>
+          <ul id="workouts-list" class="workouts-list"></ul>
+        </section>
 
-      <section class="panel">
-        <h2>Workout Details</h2>
-        <div id="workout-details" class="workout-details">
-          <p>Select a workout to see details.</p>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2>Create Workout</h2>
-        <form id="workout-form">
-          <div class="field">
-            <label for="workout-name">Name</label>
-            <input id="workout-name" name="name" type="text" required />
+        <section class="panel">
+          <h2>Passdetaljer</h2>
+          <div id="workout-details" class="workout-details" aria-live="polite">
+            <p>Välj ett träningspass för att se detaljer.</p>
           </div>
+        </section>
 
-          <div class="field">
-            <label for="workout-date">Date (UTC)</label>
-            <input
-              id="workout-date"
-              name="date"
-              type="datetime-local"
-              required
-            />
+        <section class="panel">
+          <h2>Skapa träningspass</h2>
+          <form id="workout-form">
+            <div class="field">
+              <label for="workout-name">Namn</label>
+              <input id="workout-name" name="name" type="text" required />
+            </div>
+            <div class="field">
+              <label for="workout-date">Datum (lokal tid)</label>
+              <input id="workout-date" name="date" type="datetime-local" required />
+            </div>
+            <div id="exercises-container" class="exercises-container"></div>
+            <button type="button" id="add-exercise">Lägg till övning</button>
+            <button type="submit">Spara träningspass</button>
+          </form>
+          <div id="form-errors" class="form-errors" aria-live="polite"></div>
+        </section>
+      </div>
+
+      <div id="calendar-view" class="calendar-layout" hidden>
+        <section class="panel" aria-label="Träningskalender">
+          <div class="calendar-toolbar">
+            <button type="button" id="previous-month" aria-label="Föregående månad">←</button>
+            <h2 id="calendar-title" aria-live="polite"></h2>
+            <button type="button" id="next-month" aria-label="Nästa månad">→</button>
           </div>
-
-          <div id="exercises-container" class="exercises-container"></div>
-
-          <button type="button" id="add-exercise">Add Exercise</button>
-          <button type="submit">Save Workout</button>
-        </form>
-
-        <div id="form-errors" class="form-errors" aria-live="polite"></div>
-      </section>
+          <dl class="month-stats" aria-live="polite">
+            <div><dt>Antal pass</dt><dd id="month-count">—</dd></div>
+            <div><dt>Träningsvolym</dt><dd><span id="month-volume">—</span> kg</dd></div>
+          </dl>
+          <p class="calendar-help">Grönt och antal visar träningsdagar. Gul ram: idag. Blå kant: vald dag.</p>
+          <table id="calendar-table" class="calendar-table" aria-labelledby="calendar-title">
+            <thead>
+              <tr>
+                <th scope="col" abbr="måndag">Mån</th>
+                <th scope="col" abbr="tisdag">Tis</th>
+                <th scope="col" abbr="onsdag">Ons</th>
+                <th scope="col" abbr="torsdag">Tor</th>
+                <th scope="col" abbr="fredag">Fre</th>
+                <th scope="col" abbr="lördag">Lör</th>
+                <th scope="col" abbr="söndag">Sön</th>
+              </tr>
+            </thead>
+            <tbody id="calendar-days"></tbody>
+          </table>
+          <p id="calendar-status" role="status"></p>
+          <button type="button" id="calendar-retry" hidden>Försök igen</button>
+          <p class="calendar-help">Volym = summan av repetitioner × vikt för alla månadens set. Alla sparade pass visas som historik.</p>
+        </section>
+        <section class="panel" aria-labelledby="selected-day-title">
+          <h2 id="selected-day-title">Träningspass för vald dag</h2>
+          <div id="day-workouts" aria-live="polite"></div>
+        </section>
+      </div>
     </main>
-
     <script src="/main.js"></script>
   </body>
 </html>

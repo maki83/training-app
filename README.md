@@ -2,8 +2,9 @@
 
 Workout tracking MVP with an Express API and a static HTML/CSS/JavaScript
 frontend. You can create workouts with exercises and sets, list saved workouts,
-and select a workout to view its details. Data is kept in backend process memory
-only; this is not a production-ready persistence or security setup.
+and select a workout to view its details. An interactive monthly calendar shows
+training history, daily details and monthly statistics. Data is kept in backend
+process memory only; this is not a production-ready persistence or security setup.
 
 ## Local development
 
@@ -55,6 +56,39 @@ Open <http://localhost:3000> for the UI. Check the backend directly at
 npm script or build step; start its Node.js server explicitly as above. Stop each
 process with Ctrl+C. Restarting the backend clears all workouts.
 
+## Workout history and calendar
+
+The Swedish UI has two navigation options: **Träningspass** (the existing list,
+workout details and creation form) and **Kalender**. Switching views preserves
+form input and the selected calendar month. No extra runtime dependencies or API
+endpoints are needed.
+
+- The calendar starts on the current month with today selected. Weeks begin on
+  Monday. Previous/next buttons cross month and year boundaries; changing months
+  selects the first day of the new month. Selecting any day shows **all** its
+  workouts, ordered by time, including names, local dates/times, exercises, reps
+  and weights. Days without workouts have an explicit empty state.
+- Training days are green and display a workout count. Today has a yellow inset
+  outline; the selected day has a blue border. These markings can coexist.
+- Monthly **Antal pass** counts workouts, not distinct training days.
+  **Träningsvolym** is the sum of `reps × weight` over every set of every exercise
+  in the selected month's workouts, in kg. Zero-weight sets contribute zero.
+  Displayed volume is rounded to at most two decimal places; calculation uses
+  the unrounded values. Empty months show zero workouts and zero volume.
+- There is no completed/planned status in the data model: **every saved workout**
+  is treated as history, including a saved workout dated in the future.
+- The form accepts **local time**, converts it to a UTC ISO timestamp for the
+  existing API, and displays and groups history in the **browser's local
+  timezone**. A UTC timestamp near midnight may belong to another local day or
+  month; the UTC string's date prefix is not used for grouping. Viewing the same
+  history in another timezone can therefore change its calendar placement.
+- Saving a workout reloads the shared history and updates both views and monthly
+  statistics without a page reload, retaining the selected month and day.
+  Loading and failed requests are distinct from an empty month: statistics show
+  `—` until history is available, and failed loads offer **Försök igen** (retry).
+- Native buttons support Tab, Enter and Space, with visible focus and accessible
+  date, selection and today labels. The dark layout stacks on smaller screens.
+
 ## Ports and configuration
 
 | Component / mode | Listening port | Host access |
@@ -95,7 +129,10 @@ Browser
 
 - `public/index.html`, `public/styles.css` and `public/main.js` implement the UI
   without a frontend framework or bundler. Details are rendered from the list
-  response; selecting a workout does not call a separate detail endpoint.
+  response; selecting a workout or calendar day does not call a separate detail
+  endpoint. Both views use the history loaded by `loadWorkouts()` in `public/main.js`.
+  Its exported pure date/summary helpers are also used directly in tests; browser
+  initialization runs once, while CommonJS imports have no DOM side effects.
 - `src/frontend-server.js` serves the static files and uses
   `http-proxy-middleware` to forward `/api/*` to `BACKEND_URL`, stripping `/api`.
   Browser requests use the frontend's origin, so the browser does not need direct
@@ -264,7 +301,7 @@ Install dependencies with `npm ci` first. No running backend or frontend is
 needed for Jest:
 
 ```bash
-# Full existing Jest suite
+# Full Jest suite
 npm test
 
 # Same test command used by .github/workflows/ci.yml (CI uses Node.js 22)
@@ -278,11 +315,33 @@ npm test -- --coverage --runInBand
 ```
 
 `jest.config.cjs` splits tests into `node` and `jsdom` projects. The suite covers
-health/server startup, workout creation/listing, payload/date validation, and
-frontend list rendering. `tests/frontend.proxy.test.js` also checks health,
-listing, and valid/invalid creation through the real frontend proxy against a
-local backend on an ephemeral port, without mocks. The DOM test mocks `fetch`;
-neither suite verifies the complete create-workout UI flow or Compose networking.
+health/server startup, workout creation/listing, payload/date validation, calendar
+geometry, leap years, year boundaries, multiple workouts per day and monthly
+counts/volume. `tests/calendar.test.js` also starts real Node subprocesses in
+`UTC`, `Europe/Stockholm` and `America/Los_Angeles` to check local grouping and
+month membership near UTC midnight and daylight-saving transitions.
+
+`tests/frontend.proxy.test.js` checks static calendar assets, health, listing and
+valid/invalid creation through the real proxy. `tests/frontend.dom.test.js` uses
+the actual HTML, CSS and UI logic with a real backend/proxy on ephemeral localhost
+ports. Because jsdom has no native `fetch`, a small HTTP transport supplies it;
+API responses and calendar logic are **not mocked**. These tests cover navigation,
+day details, text safety, CSS-hidden views, single initialization, empty/loading/
+error/retry states, validation, and form submission through to refreshed calendar
+statistics. Network failure is exercised against an unavailable local port;
+shutting down and restarting the real backend verifies proxy HTTP errors and
+recovery as well.
+
+For focused calendar/DOM checks:
+
+```bash
+npm test -- tests/calendar.test.js tests/frontend.dom.test.js --runInBand
+```
+
+These automated DOM tests are not a full browser or Compose networking test.
+For a browser check, start the app as above and check both views at mobile and
+desktop widths, Tab/Enter/Space navigation, today/selected/training markings,
+empty months and saving multiple workouts on the same day.
 
 ### Docker tests
 
@@ -384,9 +443,10 @@ The authentication and other application limitations below remain unchanged.
 - **Limited API:** only health, list and create are implemented. There are no
   update/delete routes, single-workout detail route, filtering or pagination.
   The UI displays details from its downloaded list.
-- **Basic date UI:** the form uses `datetime-local` and JavaScript converts the
-  entered local time to UTC with `toISOString()` before submission, despite the
-  form's “Date (UTC)” label. Displayed dates use the browser's local timezone.
-- **Limited verification:** the existing DOM test is not an end-to-end browser
+- **Local date UI:** the form uses `datetime-local` and JavaScript converts the
+  entered local time to UTC with `toISOString()` before submission. It does not
+  offer a timezone selector. Displayed dates and calendar membership use the
+  browser's local timezone, not a fixed training location's timezone.
+- **Limited verification:** the DOM integration suite is not an end-to-end browser
   test, and a successful health response alone does not verify the whole UI/API
   flow or provide production readiness guarantees.
